@@ -1,0 +1,163 @@
+---
+title: "GPS Data Cleaning"
+author: "HansMartin"
+date: "June 4, 2018"
+output: html_document
+---
+
+```{r include=FALSE, echo=FALSE,echo=FALSE, message=FALSE}
+#function to install and load required packages
+ipak <- function(pkg){
+  new.pkg <- pkg[!(pkg %in% installed.packages()[, "Package"])]
+  if (length(new.pkg)) 
+    install.packages(new.pkg, dependencies = TRUE)
+  sapply(pkg, require, character.only = TRUE)
+}
+
+#load or install these packages:
+packages <- c("ks", "lattice", "plotrix", "adehabitatHR", "maptools", "foreign", "rgdal", "sp", "raster",
+              "ggplot2","colorRamps","rgeos","leaflet","lubridate", "htmlwidgets","move", "tmap","grid", "leaflet","dplyr")
+
+#run function to install packages
+ipak(packages)
+```
+GPS Collar Data
+```{r}
+gpsdat<-read.csv("E:/YHTGPSCollarData/JBerg_5_21_2018YHT_GPS_Data/CLEAN_comb_GPS_data_13Apr2018.csv", stringsAsFactors = F)
+immdat<-read.csv("E:/YHTGPSCollarData/JBerg_5_21_2018YHT_GPS_Data/Immobilization Data_6_6_2018.csv", stringsAsFactors = F)
+mortdat<-read.csv("E:/YHTGPSCollarData/JBerg_5_21_2018YHT_GPS_Data/tMORTALITY_DATA_6_6_2018.csv", stringsAsFactors = F)
+head(gpsdat)
+immdat$UTCDate <- format(as.POSIXct(immdat$Date, format="%m/%d/%Y", tz="America/Denver"),tz="GMT")
+
+mortdat$UTCDate <- format(as.POSIXct(mortdat$Date.Killed, format="%m/%d/%Y", tz="America/Denver"),tz="GMT")
+gpsdat$UTCTelemDate <- as.POSIXct(paste(gpsdat$FIX.DATE, gpsdat$TIME), format="%Y-%m-%d %H:%M:%S",usetz=T, TZ="UTC")
+
+gpsdat$LMTDate <- as.POSIXct(paste(gpsdat$FIX.DATE, gpsdat$TIME), format="%Y-%m-%d %H:%M:%S")
+```
+
+```{r}
+l<-c("yl","bl","YL")
+n<-c(145,23,1)
+
+gsub("yellow|yl|YL","YL","yL",ignore.case = T)
+gsub("blue|bl|blus|blu","BL","bl",ignore.case = T)
+gsub("GR|green","GR","Gr",ignore.case = T)
+gsub("orange|or","OR",ignore.case = T)
+
+unique(immdat$Tag.1.Color)
+
+unique(immdat$Animal.Name)
+unique(gpsdat$Elk.ID2)
+unique(gpsdat$Elk.ID2)
+
+immdat<-immdat %>% filter(Species=="ELK") %>% mutate(eartagID=paste(Tag.1.Color,Tag1.Number,sep=""))
+write.csv(unique(immdat$Tag.1.Color),"tag_colors.csv")
+
+FirstAndLastGPSloc<-gpsdat %>% group_by(Elk.ID2) %>% summarise(firstloc=TelemDate[which.min(TelemDate)], lastloc=TelemDate[which.max(TelemDate)]) %>% left_join(immdat, by=c("Elk.ID2"="eartagID"))
+
+
+
+left_join(FirstGPSloc, mortdat, by=c("Elk.ID2"="Name.Ear.Tag"))
+
+mortdate<-mortdat %>% group_by(Elk.ID2)
+
+
+```
+
+```{r echo=FALSE, message=FALSE, include=FALSE}
+coords<-cbind(gpsdat$UTMX,gpsdat$UTMY) #vector of coordinates
+sp=SpatialPoints(coords, #vector of coordinates
+                 CRS("+proj=utm +zone=11 +ellps=WGS84 +datum=WGS84 +units=m +no_defs") #specify the coordinate reference system
+                 ) 
+gpsspdf<-SpatialPointsDataFrame(
+  coords=sp, 
+  data=gpsdat #add data to make this a spatial points data frame
+)
+td<-tempdir()
+writeOGR(gpsspdf,td,layer="YHTGPSCollarData5_21_2018",driver="ESRI Shapefile")
+ 
+
+```
+
+
+```{r include=FALSE, echo=FALSE,echo=FALSE, message=FALSE}
+#Study Extent
+coldat<-readOGR("C:/Users/Hans Martin/Documents/GitHub/GPSCollarDataCleaning/YHTGPSCollarData5_21_2018.shp")
+studyextent<-readOGR("C:/Users/Hans Martin/Documents/GitHub/MappingLocationData/YHT Study Extent/YHTstudy_extent.shp")
+studyextent<-spTransform(studyextent,CRS("+proj=utm +zone=11 +datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0")) #reproject using the landcover projection
+#Ya Ha Tinda Boundary
+yahatinda<-readOGR("C:/Users/Hans Martin/Documents/GitHub/MappingLocationData/YaHaTindaShape")
+proj4string(yahatinda)<-CRS("+proj=utm +zone=11 +ellps=GRS80 +datum=NAD83 +units=m +no_defs")
+yahatinda<-spTransform(yahatinda,CRS("+proj=utm +zone=11 +datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0"))
+
+#Park Regions
+BanffRegions<-readOGR("C:/Users/Hans Martin/Documents/GitHub/MappingLocationData/Basebnp_region/basebnp_region.shp")
+BanffRegions<-spTransform(BanffRegions,CRS("+proj=utm +zone=11 +datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0"))
+
+#Elevation Raster
+#elevation<-raster("elevationDEMYHTBANFF.tif")
+
+```
+
+```{r include=FALSE, echo=FALSE,echo=FALSE, message=FALSE}
+
+ tmap_mode('view')
+clusterlocmap<-
+  #tm_shape(elevation)+ #loads file (either shape file, raster file, etc...)
+  #tm_raster()+#specifies how r should plot the file (either as a raster, polygon, line, symbol)
+  tm_shape(BanffRegions)+ # loads banff shape file
+  tm_polygons(alpha = .5)+ #plots the shapefile as a polygonalpha =0.5 controls transparency (0-1)
+tm_shape(studyextent)+# loads banff shape file
+ tm_borders(col = "Red")+ #plots only the boundary of the shapefile 
+tm_shape(yahatinda)+
+  tm_polygons(col="darkgray")+
+  tm_shape(gpsspdf)+
+  tm_symbols(size=0.001, #plots the spatialpoints dataframe as symbols
+             col="Elk.ID2", #color is associated with the column "park" in the spatialpointsdataframe
+             #labels = c("Banff","Lake Louise", "Ya Ha Tinda 5x5km Grid","Ya Ha Tinda Grassland Camera Grid"),
+             title.col =  "ElkId")+
+  tm_style_col_blind()+ #uses a colorblind cooperative colorscheme for the symbols
+  
+  #tm_compass(position=c("right", "top"))+ #inserts a compass showing north.
+  
+  tm_add_legend(type="line", col=c("red"), title="Study Area") + #adds a custom legend
+  
+  tm_add_legend(type="fill", col=c("lightgrey"), title="National Park Boundary") + #adds a custom legend 
+  
+  tm_add_legend(type="fill", col=c("darkgray"), title="Ya Ha Tinda Ranch") +#adds a custom legend
+  
+    
+  tm_layout(
+    main.title = "Camera Traps Operated he Ya Ha Tinda Research Project",#text for main title
+            main.title.size = 0.745, #size of main title
+            main.title.position= c("center"),#position of main title ("top","right","bottom")
+            #outer.margins = c(0,0,0,0.01), 
+            inner.margins = c(0.01,0.01,0.01,0.11), 
+            #between.margin = 0.1,
+            compass.type = "arrow", #type of compass rose
+            legend.outside = T, # places the legend inside the map or outside
+            legend.title.size=0.75,
+            legend.text.size=0.5,
+            legend.just = c("right", "top")#specifies legend location
+    ) 
+
+```
+
+```{r echo=FALSE,echo=FALSE, message=FALSE}
+tmap_leaflet(clusterlocmap,mode="view")
+```
+
+
+```{r}
+pb.txt<-"2001-12-13 00:01:12"
+pb.date<-as.POSIXct(pb.txt, tz="America/Denver")
+nowAsCharacter = format(pb.date, tz="GMT")
+as.POSIXct(format(nowAsCharacter, tz="America/Denver"), tz="GMT")
+
+
+now = Sys.time()
+nowAsCharacter = format(now, tz="GMT",usetz=T)
+as.POSIXct(format(nowAsCharacter, tz="America/Denver"), tz="GMT")
+
+#convert_UTC_to_localtime(pb.date,latitude=46.8721,longitude=113.9940,time.type = c("daylight local"))
+```
